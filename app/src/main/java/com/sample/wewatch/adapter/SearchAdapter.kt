@@ -1,13 +1,15 @@
-package com.sample.wewatch.view
+package com.sample.wewatch.adapter
 
 import android.content.Context
 import android.view.LayoutInflater
 import android.view.ViewGroup
 import androidx.recyclerview.widget.RecyclerView
+import com.sample.wewatch.view.SearchActivity
 import com.sample.wewatch.databinding.ItemMovieDetailsBinding
 import com.sample.wewatch.model.Movie
 import com.squareup.picasso.Picasso
 
+// Адаптер для списка результатов поиска фильмов
 class SearchAdapter(
   var movieList: List<Movie>,
   var context: Context,

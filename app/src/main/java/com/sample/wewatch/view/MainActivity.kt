@@ -1,4 +1,5 @@
 package com.sample.wewatch.view
+
 import android.app.Activity
 import android.content.Intent
 import android.os.Bundle
@@ -6,109 +7,53 @@ import android.util.Log
 import android.view.Menu
 import android.view.MenuItem
 import android.view.View
-import android.view.View.INVISIBLE
-import android.view.View.VISIBLE
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.sample.wewatch.R
-import com.sample.wewatch.contract.AddMovieActivity
+import com.sample.wewatch.contract.MainContract
 import com.sample.wewatch.databinding.ActivityMainBinding
 import com.sample.wewatch.model.LocalDataSource
 import com.sample.wewatch.model.Movie
-import io.reactivex.Observable
-import io.reactivex.android.schedulers.AndroidSchedulers
-import io.reactivex.annotations.NonNull
-import io.reactivex.disposables.CompositeDisposable
-import io.reactivex.observers.DisposableObserver
-import io.reactivex.schedulers.Schedulers
+import com.sample.wewatch.presenter.MainPresenter
+import com.sample.wewatch.adapter.MainAdapter
 
-class MainActivity : AppCompatActivity() {
+// Главная активити
+class MainActivity : AppCompatActivity(), MainContract.View {
 
-  // Инициализация переменной для View Binding
   private lateinit var binding: ActivityMainBinding
+  private lateinit var presenter: MainContract.Presenter
   private var adapter: MainAdapter? = null
-
-  private lateinit var dataSource: LocalDataSource
-  private val compositeDisposable = CompositeDisposable()
-
-  private val TAG = "MainActivity"
 
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
 
     // Инициализация View Binding
     binding = ActivityMainBinding.inflate(layoutInflater)
-
-    // Установка содержимого активности с использованием корневого элемента из binding
     setContentView(binding.root)
 
     setupViews()
+
+    // Создание презентера
+    MainPresenter(this, LocalDataSource(application))
   }
 
   override fun onStart() {
     super.onStart()
-    dataSource = LocalDataSource(application)
-    getMyMoviesList()
+    presenter.loadMovies()
   }
 
   override fun onStop() {
     super.onStop()
-    compositeDisposable.clear()
+    presenter.detachView()
   }
 
   private fun setupViews() {
-    // Использование View Binding для доступа к элементам макета
     binding.moviesRecyclerview.layoutManager = LinearLayoutManager(this)
-    binding.fab.setOnClickListener { goToAddMovieActivity(it) }
-    supportActionBar?.title = "Фильмы для просмотра"
+    binding.fab.setOnClickListener { goToAddMovieActivity() }
   }
 
-  private fun getMyMoviesList() {
-    val myMoviesDisposable = myMoviesObservable
-      .subscribeOn(Schedulers.io())
-      .observeOn(AndroidSchedulers.mainThread())
-      .subscribeWith(observer)
-
-    compositeDisposable.add(myMoviesDisposable)
-  }
-
-  private val myMoviesObservable: Observable<List<Movie>>
-    get() = dataSource.allMovies
-
-  private val observer: DisposableObserver<List<Movie>>
-    get() = object : DisposableObserver<List<Movie>>() {
-
-      override fun onNext(movieList: List<Movie>) {
-        displayMovies(movieList)
-      }
-
-      override fun onError(@NonNull e: Throwable) {
-        Log.d(TAG, "Ошибка $e")
-        e.printStackTrace()
-        displayError("Ошибка при получении списка фильмов")
-      }
-
-      override fun onComplete() {
-        Log.d(TAG, "Завершено")
-      }
-    }
-
-  fun displayMovies(movieList: List<Movie>?) {
-    if (movieList == null || movieList.isEmpty()) {
-      Log.d(TAG, "Нет фильмов для отображения")
-      binding.moviesRecyclerview.visibility = INVISIBLE
-      binding.noMoviesLayout.visibility = VISIBLE
-    } else {
-      adapter = MainAdapter(movieList, this@MainActivity)
-      binding.moviesRecyclerview.adapter = adapter
-
-      binding.moviesRecyclerview.visibility = VISIBLE
-      binding.noMoviesLayout.visibility = INVISIBLE
-    }
-  }
-
-  fun goToAddMovieActivity(v: View) {
+  private fun goToAddMovieActivity() {
     val myIntent = Intent(this@MainActivity, AddMovieActivity::class.java)
     startActivityForResult(myIntent, ADD_MOVIE_ACTIVITY_REQUEST_CODE)
   }
@@ -117,9 +62,34 @@ class MainActivity : AppCompatActivity() {
     super.onActivityResult(requestCode, resultCode, data)
     if (requestCode == ADD_MOVIE_ACTIVITY_REQUEST_CODE && resultCode == Activity.RESULT_OK) {
       showToast("Фильм успешно добавлен.")
+      presenter.loadMovies()
     } else {
-      displayError("Не удалось добавить фильм.")
+      showToast("Не удалось добавить фильм.")
     }
+  }
+
+  // Показать фильмы
+  override fun showMovies(movies: List<Movie>) {
+    adapter = MainAdapter(movies, this)
+    binding.moviesRecyclerview.adapter = adapter
+    binding.moviesRecyclerview.visibility = View.VISIBLE
+    binding.noMoviesLayout.visibility = View.INVISIBLE
+  }
+
+  // Показать сообщение, что фильмов нет
+  override fun showNoMovies() {
+    binding.moviesRecyclerview.visibility = View.INVISIBLE
+    binding.noMoviesLayout.visibility = View.VISIBLE
+  }
+
+  // Показать сообщение об ошибке
+  override fun showError(message: String) {
+    Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+  }
+
+  // Установить презентера
+  override fun setPresenter(presenter: MainContract.Presenter) {
+    this.presenter = presenter
   }
 
   override fun onCreateOptionsMenu(menu: Menu): Boolean {
@@ -128,28 +98,21 @@ class MainActivity : AppCompatActivity() {
   }
 
   override fun onOptionsItemSelected(item: MenuItem): Boolean {
-    if (item.itemId == R.id.deleteMenuItem) {
-      val adapter = this.adapter
-      if (adapter != null) {
-        for (movie in adapter.selectedMovies) {
-          dataSource.delete(movie)
+    return when (item.itemId) {
+      R.id.deleteMenuItem -> {
+        val selectedMovies = adapter?.selectedMovies ?: emptyList()
+        if (selectedMovies.isNotEmpty()) {
+          presenter.deleteSelectedMovies(selectedMovies)
+          showToast(if (selectedMovies.size == 1) "Фильм удален" else "Фильмы удалены")
         }
-        if (adapter.selectedMovies.size == 1) {
-          showToast("Фильм удален")
-        } else if (adapter.selectedMovies.size > 1) {
-          showToast("Фильмы удалены")
-        }
+        true
       }
+      else -> super.onOptionsItemSelected(item)
     }
-    return super.onOptionsItemSelected(item)
   }
 
   fun showToast(str: String) {
     Toast.makeText(this@MainActivity, str, Toast.LENGTH_LONG).show()
-  }
-
-  fun displayError(e: String) {
-    showToast(e)
   }
 
   companion object {

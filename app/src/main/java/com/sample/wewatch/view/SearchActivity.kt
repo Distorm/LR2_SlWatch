@@ -3,129 +3,95 @@ package com.sample.wewatch.view
 import android.app.Activity
 import android.content.Intent
 import android.os.Bundle
-import android.util.Log
 import android.view.View
-import android.view.View.INVISIBLE
-import android.view.View.VISIBLE
-import android.widget.ProgressBar
-import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.LinearLayoutManager
-import androidx.recyclerview.widget.RecyclerView
-import com.sample.wewatch.R
+import com.sample.wewatch.adapter.SearchAdapter
+import com.sample.wewatch.contract.SearchContract
+import com.sample.wewatch.databinding.ActivitySearchMovieBinding
+import com.sample.wewatch.model.Movie
 import com.sample.wewatch.model.RemoteDataSource
-import com.sample.wewatch.model.TmdbResponse
-import io.reactivex.Observable
-import io.reactivex.android.schedulers.AndroidSchedulers
+import com.sample.wewatch.presenter.SearchPresenter
 
-import io.reactivex.annotations.NonNull
-import io.reactivex.disposables.CompositeDisposable
-import io.reactivex.observers.DisposableObserver
-import io.reactivex.schedulers.Schedulers
+// Активити для поиска фильмов
+class SearchActivity : AppCompatActivity(), SearchContract.View {
 
-//const val SEARCH_QUERY = "searchQuery"
-
-class SearchActivity : AppCompatActivity() {
   private val TAG = "SearchActivity"
-  private lateinit var searchResultsRecyclerView: RecyclerView
+  private lateinit var binding: ActivitySearchMovieBinding
+  private lateinit var presenter: SearchContract.Presenter
   private lateinit var adapter: SearchAdapter
-  private lateinit var noMoviesTextView: TextView
-  private lateinit var progressBar: ProgressBar
   private var query = ""
-
-  private var dataSource = RemoteDataSource()
-  private val compositeDisposable = CompositeDisposable()
 
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
-    setContentView(R.layout.activity_search_movie)
-    searchResultsRecyclerView = findViewById(R.id.search_results_recyclerview)
-    noMoviesTextView = findViewById(R.id.no_movies_textview)
-    progressBar = findViewById(R.id.progress_bar)
+
+    // Инициализация View Binding
+    binding = ActivitySearchMovieBinding.inflate(layoutInflater)
+    setContentView(binding.root)
 
     val i = intent
     query = i.getStringExtra(SEARCH_QUERY) ?: ""
     setupViews()
+
+    // Создание презентера
+    SearchPresenter(this, RemoteDataSource())
   }
 
   override fun onStart() {
     super.onStart()
-    progressBar.visibility = VISIBLE
-    getSearchResults(query)
+    presenter.searchMovies(query)
   }
 
   override fun onStop() {
     super.onStop()
-    compositeDisposable.clear()
+    presenter.detachView()
   }
 
   private fun setupViews() {
-    searchResultsRecyclerView.layoutManager = LinearLayoutManager(this)
+    binding.searchResultsRecyclerview.layoutManager = LinearLayoutManager(this)
   }
 
-  fun getSearchResults(query: String) {
-    val searchResultsDisposable = searchResultsObservable(query)
-        .subscribeOn(Schedulers.io())
-        .observeOn(AndroidSchedulers.mainThread())
-        .subscribeWith(observer)
-
-    compositeDisposable.add(searchResultsDisposable)
+  // Показать индикатор загрузки
+  override fun showLoading() {
+    binding.progressBar.visibility = View.VISIBLE
   }
 
-  val searchResultsObservable: (String) -> Observable<TmdbResponse> = { query -> dataSource.searchResultsObservable(query) }
-
-  val observer: DisposableObserver<TmdbResponse>
-    get() = object : DisposableObserver<TmdbResponse>() {
-
-      override fun onNext(@NonNull tmdbResponse: TmdbResponse) {
-        Log.d(TAG, "OnNext" + tmdbResponse.totalResults)
-        displayResult(tmdbResponse)
-      }
-
-      override fun onError(@NonNull e: Throwable) {
-        Log.d(TAG, "Error$e")
-        e.printStackTrace()
-        displayError("Error fetching Movie Data")
-      }
-
-      override fun onComplete() {
-        Log.d(TAG, "Completed")
-      }
-    }
-
-  fun displayResult(tmdbResponse: TmdbResponse) {
-    progressBar.visibility = INVISIBLE
-
-    if (tmdbResponse.totalResults == null || tmdbResponse.totalResults == 0) {
-      searchResultsRecyclerView.visibility = INVISIBLE
-      noMoviesTextView.visibility = VISIBLE
-    } else {
-      adapter = SearchAdapter(tmdbResponse.results
-              ?: arrayListOf(), this@SearchActivity, itemListener)
-      searchResultsRecyclerView.adapter = adapter
-
-      searchResultsRecyclerView.visibility = VISIBLE
-      noMoviesTextView.visibility = INVISIBLE
-    }
+  // Скрыть индикатор загрузки
+  override fun hideLoading() {
+    binding.progressBar.visibility = View.INVISIBLE
   }
 
-  fun showToast(string: String) {
-    Toast.makeText(this@SearchActivity, string, Toast.LENGTH_LONG).show()
+  // Показать фильмы
+  override fun showMovies(movies: List<Movie>) {
+    binding.searchResultsRecyclerview.visibility = View.VISIBLE
+    binding.noMoviesTextview.visibility = View.INVISIBLE
+    adapter = SearchAdapter(movies, this, itemListener)
+    binding.searchResultsRecyclerview.adapter = adapter
   }
 
-  fun displayError(string: String) {
-    showToast(string)
+  // Показать сообщение, что фильмов нет
+  override fun showNoMovies() {
+    binding.searchResultsRecyclerview.visibility = View.INVISIBLE
+    binding.noMoviesTextview.visibility = View.VISIBLE
+  }
+
+  // Показать сообщение об ошибке
+  override fun showError(message: String) {
+    Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+  }
+
+  // Установить презентера
+  override fun setPresenter(presenter: SearchContract.Presenter) {
+    this.presenter = presenter
   }
 
   companion object {
-
-    val SEARCH_QUERY = "searchQuery"
-    val EXTRA_TITLE = "SearchActivity.TITLE_REPLY"
-    val EXTRA_RELEASE_DATE = "SearchActivity.RELEASE_DATE_REPLY"
-    val EXTRA_POSTER_PATH = "SearchActivity.POSTER_PATH_REPLY"
+    const val SEARCH_QUERY = "searchQuery"
+    const val EXTRA_TITLE = "SearchActivity.TITLE_REPLY"
+    const val EXTRA_RELEASE_DATE = "SearchActivity.RELEASE_DATE_REPLY"
+    const val EXTRA_POSTER_PATH = "SearchActivity.POSTER_PATH_REPLY"
   }
-
 
   internal var itemListener: RecyclerItemListener = object : RecyclerItemListener {
     override fun onItemClick(view: View, position: Int) {
@@ -144,6 +110,4 @@ class SearchActivity : AppCompatActivity() {
   interface RecyclerItemListener {
     fun onItemClick(v: View, position: Int)
   }
-
 }
-
